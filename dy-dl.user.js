@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.0.0
+// @version         1.0.1
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -209,7 +209,7 @@
     }
   }
   detect_player_change();
-  const download_current_media = () => {
+  const download_current_media = async () => {
     if (!downloader_status.current_media) return;
     const {
       video,
@@ -229,9 +229,20 @@
       // TODO 要是能支持 zip 打包会更好一点
       for (let idx = 0; idx < images.length; idx++) {
         const image = images[idx];
+        // 包含视频的图集
+        const video = image?.video;
+        if (video) {
+          const video_url =
+            video?.playApi ??
+            video.playAddr?.[0]?.src ??
+            video.bitRateList[0]?.playApi;
+          await download(video_url, `${nickname}_${desc}_${idx}`);
+          continue;
+        }
+        // 单纯的图片图集
         const img_url = image?.urlList?.[0];
         if (!img_url) continue;
-        download(img_url, `${nickname}_${desc}_${idx}`);
+        await download(img_url, `${nickname}_${desc}_${idx}`);
       }
       return;
     }
