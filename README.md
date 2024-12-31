@@ -26,5 +26,8 @@
 
 ![sticker](https://github.com/zhzLuke96/douyin-dl-user-js/raw/main/docs/sticker_btn.jpg)
 
+## Change log
+- 241231 支持包含视频的图集
+
 ## LICENSE
 MIT
