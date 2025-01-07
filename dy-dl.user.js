@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.0.1
+// @version         1.0.2
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -66,7 +66,7 @@
       // 去掉 .image 路由参数，一部分图片会走这个路由，去掉，我们使用从resp中拿到的 fileExt
       filename = filename.slice(0, -".image".length);
     }
-    if (!filename.includes(".")) {
+    if (!filename.toLowerCase().endsWith(fileExt.toLowerCase())) {
       filename += `.${fileExt}`;
     }
     const blob = await response.blob();
