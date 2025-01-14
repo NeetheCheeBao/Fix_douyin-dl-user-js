@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.0.2
+// @version         1.0.3
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -47,7 +47,7 @@
    * @param imgSrc {string}
    * @param filename_input {string}
    */
-  async function download(imgSrc, filename_input = "") {
+  async function download_file(imgSrc, filename_input = "") {
     if (imgSrc.startsWith("//")) {
       const protocol = window.location.protocol;
       imgSrc = `${protocol}${imgSrc}`;
@@ -133,7 +133,7 @@
     downloadButton.className = "LV01TNDE";
     downloadButton.addEventListener("click", () => {
       const imgSrc = img.src;
-      download(imgSrc);
+      download_file(imgSrc);
     });
     downloadButton.style.position = "absolute";
     downloadButton.style.bottom = "35px";
@@ -166,7 +166,7 @@
     // 添加下载事件
     downloadButton.addEventListener("click", () => {
       const imgSrc = imgNode.src;
-      download(imgSrc);
+      download_file(imgSrc);
     });
 
     // 将按钮添加到 tooltip
@@ -181,24 +181,70 @@
 
   console.log("[dy-dl]已启动");
 
+  /**
+   *
+   * @param {string} bigintStr
+   */
+  function toShortId(bigintStr) {
+    try {
+      return BigInt(bigintStr).toString(36);
+    } catch (error) {
+      return bigintStr;
+    }
+  }
+
+  /**
+   * 文件名
+   *
+   * [nickname] + [short_id] + [tags] + [desc]
+   * max length: 64
+   *
+   * @param {import("./types").DouyinMedia.MediaRoot} media
+   */
+  function build_filename(media) {
+    const {
+      authorInfo: { nickname },
+      awemeId,
+      desc,
+      textExtra,
+    } = media;
+    const short_id = toShortId(awemeId);
+    const tag_list = textExtra.map((x) => x.hashtagName);
+    const tags = tag_list.map((x) => "#" + x).join("_");
+    let rawDesc = desc;
+    // 去除 desc 中的 tag
+    tag_list.forEach((t) => {
+      rawDesc = rawDesc.replace(`#${t}`, "");
+    });
+    rawDesc = rawDesc.trim();
+    // NOTE: 这里没有关注特殊字符的原因是浏览器一般能自动处理
+    return `${nickname}_${short_id}_${tags}_${rawDesc}`.slice(0, 64);
+  }
+
   // ========== 视频下载 =============
 
+  /**
+   * @type {{
+   *   player: import("./types").DouyinPlayer.PlayerInstance | null,
+   *   current_media: import("./types").DouyinMedia.MediaRoot | null
+   * }}
+   */
   const downloader_status = {
     player: null,
     current_media: null,
   };
-  const update_downloader_status = () => {
-    // 更新当前视频
-    downloader_status.current_media = player.config.awemeInfo;
-  };
   function bind_player_events() {
     const { player } = downloader_status;
     if (!player) return;
-    update_downloader_status();
-    player.on("play", update_downloader_status);
-    player.on("seeked", update_downloader_status);
+    const update = () => {
+      // 更新当前视频
+      downloader_status.current_media = player.config.awemeInfo;
+    };
+    update();
+    player.on("play", update);
+    player.on("seeked", update);
   }
-  async function detect_player_change() {
+  async function start_detect_player_change() {
     while (1) {
       if (downloader_status.player !== window.player) {
         downloader_status.player = window.player;
@@ -208,20 +254,17 @@
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
-  detect_player_change();
+  start_detect_player_change();
+
   const download_current_media = async () => {
     if (!downloader_status.current_media) return;
-    const {
-      video,
-      desc,
-      authorInfo: { nickname },
-      images,
-    } = downloader_status.current_media;
+    const { video, images } = downloader_status.current_media;
+    const filename = build_filename(downloader_status.current_media);
     const video_url =
       video?.playerApi ?? video?.playerAddr ?? video.bitRateList?.[0]?.playApi;
     if (video_url) {
       // download video
-      download(video_url, `${nickname}_${desc}`);
+      download_file(video_url, filename);
       return;
     }
     if (images) {
@@ -236,13 +279,13 @@
             video?.playApi ??
             video.playAddr?.[0]?.src ??
             video.bitRateList[0]?.playApi;
-          await download(video_url, `${nickname}_${desc}_${idx}`);
+          await download_file(video_url, `${filename}_${idx}`);
           continue;
         }
         // 单纯的图片图集
         const img_url = image?.urlList?.[0];
         if (!img_url) continue;
-        await download(img_url, `${nickname}_${desc}_${idx}`);
+        await download_file(img_url, `${filename}_${idx}`);
       }
       return;
     }
