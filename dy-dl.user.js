@@ -8,9 +8,9 @@
 // @icon            https://www.google.com/s2/favicons?sz=64&domain=douyin.com
 // @grant           none
 // @license         MIT
-// @updateURL       https://github.com/zhzLuke96/hf-links/raw/main/hf-links.user.js
-// @downloadURL     https://github.com/zhzLuke96/hf-links/raw/main/hf-links.user.js
-// @supportURL      https://github.com/zhzLuke96/hf-links/issues
+// @updateURL       https://github.com/zhzLuke96/douyin-dl-user-js/raw/main/dy-dl.user.js
+// @downloadURL     https://github.com/zhzLuke96/douyin-dl-user-js/raw/main/dy-dl.user.js
+// @supportURL      https://github.com/zhzLuke96/douyin-dl-user-js/issues
 // ==/UserScript==
 
 (function () {
