@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.0.3
+// @version         1.0.4
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -225,13 +225,17 @@
 
   /**
    * @type {{
-   *   player: import("./types").DouyinPlayer.PlayerInstance | null,
-   *   current_media: import("./types").DouyinMedia.MediaRoot | null
+   *  player: import("./types").DouyinPlayer.PlayerInstance | null,
+   *  current_media: import("./types").DouyinMedia.MediaRoot | null,
+   *  downloading: boolean,
+   *  $btn: HTMLElement | null,
    * }}
    */
   const downloader_status = {
     player: null,
     current_media: null,
+    downloading: false,
+    $btn: null,
   };
   function bind_player_events() {
     const { player } = downloader_status;
@@ -256,7 +260,37 @@
   }
   start_detect_player_change();
 
-  const download_current_media = async () => {
+  function flag_start_download() {
+    downloader_status.downloading = true;
+    const { $btn } = downloader_status;
+    if ($btn) {
+      // TODO: progress
+    }
+    return () => {
+      downloader_status.downloading = false;
+      if ($btn) {
+        // TODO: progress
+      }
+    };
+  }
+
+  function lock_download(download_fn) {
+    return async () => {
+      if (downloader_status.downloading) {
+        alert("[dy-dl]正在下载中...请稍等或刷新页面");
+        return;
+      }
+      const out = flag_start_download();
+      try {
+        await download_fn();
+      } finally {
+        await new Promise((r) => setTimeout(r, 300));
+        out();
+      }
+    };
+  }
+
+  const _download_current_media = async () => {
     if (!downloader_status.current_media) return;
     const { video, images } = downloader_status.current_media;
     const filename = build_filename(downloader_status.current_media);
@@ -291,6 +325,7 @@
     }
     alert("[dy-dl]无法下载当前视频，尝试刷新、暂停、播放等操作后重试。");
   };
+  const download_current_media = lock_download(_download_current_media);
   /**
    *
    * @param {HTMLElement} xg_control_node
@@ -300,9 +335,37 @@
     const right_gird = xg_control_node.querySelector(".xg-right-grid");
     if (!right_gird) return;
     const downloadButton = render_html(`
-<xg-icon class="xgplayer-playback-setting" data-state="normal" data-index="6"><div class="xgplayer-setting-playbackRatio">下载</div><div class="xgplayer-slider xgplayer-box-douyin "><div class="xgplayer-setting-content"><div class="xgplayer-playratio-wrap"><div data-id="0.75" class="xgplayer-playratio-item">0.75x</div><div data-id="1.0" class="select xgplayer-playratio-item">1.0x</div><div data-id="1.25" class="xgplayer-playratio-item">1.25x</div><div data-id="1.5" class="xgplayer-playratio-item">1.5x</div><div data-id="1.75" class="xgplayer-playratio-item">1.75x</div><div data-id="2.0" class="xgplayer-playratio-item">2.0x</div><div data-id="3.0" class="xgplayer-playratio-item">3.0x</div></div></div></div></xg-icon>
+<xg-icon class="xgplayer-autoplay-setting automatic-continuous" data-state="normal" data-index="9">
+  <div class="xgplayer-icon" data-e2e="video-player-auto-play" data-e2e-state="video-player-no-auto-play">
+    <div class="xgplayer-setting-label">
+      <span class="xgplayer-setting-title">下载</span>
+    </div>
+  </div>
+  <div class="xgTips"><span>保存本地</span><span class="shortcutKey">M</span></div>
+</xg-icon>
 `);
     downloadButton.addEventListener("click", download_current_media);
     right_gird.appendChild(downloadButton);
   }
+
+  // **** 快捷键 ****
+  /**
+   *
+   * @param {string} key
+   * @param {Function} fn
+   */
+  function addHotkeyHook(key, fn) {
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key.toLowerCase() !== key) return;
+      const activeElement = document.activeElement;
+      const isInputElement =
+        activeElement.tagName === "INPUT" ||
+        activeElement.tagName === "TEXTAREA" ||
+        activeElement.isContentEditable;
+      if (isInputElement) return;
+      ev.preventDefault();
+      fn();
+    });
+  }
+  addHotkeyHook("m", download_current_media);
 })();

@@ -13,6 +13,7 @@
 
 视频下载按钮
 > 视频播放器控制条中【下载】按钮
+> 快捷键： 按下M键将下载当前视频/图片
 
 ![video](https://github.com/zhzLuke96/douyin-dl-user-js/raw/main/docs/video_btn.jpg)
 
@@ -27,6 +28,7 @@
 ![sticker](https://github.com/zhzLuke96/douyin-dl-user-js/raw/main/docs/sticker_btn.jpg)
 
 ## Change log
+- 250326 1.0.4 增加下载快捷键 [M] / 增加重复下载拦截
 - 250114 1.0.3 优化文件名适配性/增加类型
 - 241231 1.0.2 支持包含视频的图集
 
