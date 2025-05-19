@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.0.4
+// @version         1.0.5
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -42,93 +42,165 @@
     return div.children[0];
   }
 
-/**
- *
- * @param imgSrc {string}
- * @param filename_input {string}
- */
-async function download_file(imgSrc, filename_input = "") {
-  if (imgSrc.startsWith("//")) {
-    const protocol = window.location.protocol;
-    imgSrc = `${protocol}${imgSrc}`;
-  }
-  const url = new URL(imgSrc);
-  const response = await fetch(imgSrc);
-  if (!response.ok) {
-    alert("Failed to fetch the file");
-    return;
-  }
-  const contentType = response.headers.get("content-type");
-  const isImage = contentType.startsWith("image/");
-  const isWebP = contentType.includes("webp");
-  const fileExt = isImage ? (isWebP ? "png" : contentType.split("/")[1].toLowerCase()) : contentType.split("/")[1].toLowerCase() ?? ".jpeg";
+  /**
+   *
+   * @param {Blob} blob
+   */
+  async function convertWebPToPNG(blob) {
+    // 创建一个图像对象来加载WebP
+    const img = new Image();
+    img.src = URL.createObjectURL(blob);
 
-  let filename =
-    filename_input || url.pathname.split("/").pop() || "download";
-  if (filename.endsWith(".image")) {
-    // 去掉 .image 路由参数，一部分图片会走这个路由，去掉，我们使用从resp中拿到的 fileExt
-    filename = filename.slice(0, -".image".length);
-  }
-  if (!filename.toLowerCase().endsWith(fileExt.toLowerCase())) {
-    filename += `.${fileExt}`;
-  }
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+    });
 
-  const blob = await response.blob();
+    // 创建canvas来转换图像
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
 
-  // 如果是WebP图片，转换为PNG
-  if (isImage && isWebP) {
-    try {
-      // 创建一个图像对象来加载WebP
-      const img = new Image();
-      img.src = URL.createObjectURL(blob);
+    // 将图像绘制到canvas
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
 
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-      });
+    // 释放原始Blob URL
+    URL.revokeObjectURL(img.src);
 
-      // 创建canvas来转换图像
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-
-      // 将图像绘制到canvas
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-
-      // 释放原始Blob URL
-      URL.revokeObjectURL(img.src);
-
+    return new Promise((resolve) => {
       // 将canvas转换为PNG Blob
       canvas.toBlob((pngBlob) => {
-        // 创建下载链接
-        const link = document.createElement("a");
-        link.style.display = "none";
-        link.download = filename;
-        link.href = URL.createObjectURL(pngBlob);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(link.href);
-      }, 'image/png');
-
-      return;
-    } catch (error) {
-      console.error("WebP转PNG失败，回退到原格式:", error);
-      // 如果转换失败，回退到原始方式下载
-    }
+        resolve(pngBlob);
+      }, "image/png");
+      canvas.onerror = (e) => {
+        console.error("WebP转PNG失败，回退到原格式:", e);
+        resolve(blob);
+      };
+    });
   }
 
-  // 非WebP图片或转换失败时的下载方式
-  const link = document.createElement("a");
-  link.style.display = "none";
-  link.download = filename;
-  link.href = URL.createObjectURL(blob);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(link.href);
-}
+  /**
+   * 预下载文件
+   *
+   * PS: 这一步其实没有下载，而是通过浏览器的缓存读取了
+   * PSS: 并且如果浏览器没有缓存，似乎会报错，因为server那边会校验cookie，我们没带上（现在不知道要带上什么...在js里也没法重放请求...）
+   *
+   * @param imgSrc {string}
+   * @param filename_input {string}
+   */
+  async function prepare_download_file(imgSrc, filename_input = "") {
+    if (imgSrc.startsWith("//")) {
+      const protocol = window.location.protocol;
+      imgSrc = `${protocol}${imgSrc}`;
+    }
+    const url = new URL(imgSrc);
+    const response = await fetch(imgSrc);
+    if (!response.ok) {
+      alert("Failed to fetch the file");
+      return { ok: false };
+    }
+    const contentType = response.headers.get("content-type");
+    const isImage = contentType.startsWith("image/");
+    const isWebP = contentType.includes("webp");
+    const fileExt = isImage
+      ? isWebP
+        ? "png"
+        : contentType.split("/")[1].toLowerCase()
+      : contentType.split("/")[1].toLowerCase() ?? ".jpeg";
+
+    let filename =
+      filename_input || url.pathname.split("/").pop() || "download";
+    if (filename.endsWith(".image")) {
+      // 去掉 .image 路由参数，一部分图片会走这个路由，去掉，我们使用从resp中拿到的 fileExt
+      filename = filename.slice(0, -".image".length);
+    }
+    if (!filename.toLowerCase().endsWith(fileExt.toLowerCase())) {
+      filename += `.${fileExt}`;
+    }
+
+    const blob = await response.blob();
+    let pngBlob = null;
+
+    // 如果是WebP图片，转换为PNG
+    if (isImage && isWebP) {
+      try {
+        pngBlob = await convertWebPToPNG(blob);
+      } catch (error) {
+        console.error("[dy-dl]WebP转PNG失败", error);
+      }
+    }
+
+    return { blob, filename, isImage, isWebP, pngBlob, fileExt, ok: true };
+  }
+
+  /**
+   *
+   * @param {Blob} blob
+   * @param {string} filename
+   */
+  async function download_blob(blob, filename) {
+    const link = document.createElement("a");
+    link.style.display = "none";
+    link.download = filename;
+    link.href = URL.createObjectURL(blob);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  }
+
+  /**
+   *
+   * 下载文件流程:
+   *
+   * 1. 预下载为 blob ，读取元信息
+   * 2. 如果是 webp 图片，尝试转为 png 图片
+   * 3. 下载 blob
+   *
+   * @param source {string}
+   * @param filename_input {string}
+   * @param fallback_src {string[]} 比如其他分辨率
+   */
+  async function download_file(source, filename_input = "", fallback_src = []) {
+    // 这里是为了兼容，下个版本会改为 class 形式用类实现
+    let url_sources = [source, ...fallback_src].filter(
+      (x) => typeof x === "string"
+    );
+    url_sources = Array.from(new Set(url_sources));
+    for (const url of url_sources) {
+      let blob, pngBlob, filename;
+      try {
+        const result = await prepare_download_file(url, filename_input);
+        blob = result.blob;
+        pngBlob = result.pngBlob;
+        filename = result.filename;
+        if (!result.ok) {
+          console.error(`[dy-dl]预下载失败，将重试其他地址: ${url}`);
+          continue;
+        }
+      } catch (error) {
+        console.error(`[dy-dl]预下载失败，将重试其他地址: ${url}`);
+        continue;
+      }
+      if (pngBlob) {
+        try {
+          await download_blob(pngBlob, filename);
+          return; // 只需要下载一次，所以直接退出
+        } catch (error) {
+          console.error(`[dy-dl]下载png失败，回退原始版本`);
+        }
+      }
+      try {
+        await download_blob(blob, filename);
+        return; // 只需要下载一次，所以直接退出
+      } catch (error) {
+        console.error(`[dy-dl]下载blob失败，回退其他版本`);
+        continue;
+      }
+    }
+    alert(`[dy-dl]所有尝试下载都失败，请刷新重试`);
+  }
 
   // 创建一个 MutationObserver 来观察 DOM 变化
   const observer = new MutationObserver((mutations) => {
@@ -340,18 +412,46 @@ async function download_file(imgSrc, filename_input = "") {
     };
   }
 
+  /**
+   * 从 video 对象上取得所有 url
+   *
+   * TODO: 这里其实还有编码 256 没有取
+   * TODO: 不同 url 代表不同分辨率，现在我们也还没区分
+   *
+   * @param {import("./types").DouyinMedia.DouyinPlayerVideo} video_obj
+   */
+  function get_video_urls(video_obj) {
+    if (video_obj === null || video_obj === undefined) {
+      return [];
+    }
+    const sources = [];
+    if (video_obj.playApi) {
+      // 这个一般是最可用的
+      sources.push(video_obj.playApi);
+    }
+    if (Array.isArray(video_obj.playAddr)) {
+      sources.push(...video_obj.playAddr.map((x) => x.src));
+    }
+    if (video_obj.bitRateList) {
+      video_obj.bitRateList.forEach((x) => {
+        sources.push(x.playApi);
+      });
+    }
+    return Array.from(new Set(sources));
+  }
+
+  /**
+   * 抖音作品有两种形式：
+   * 1. 单图、单视频
+   * 2. 图集
+   *
+   * 如果是图集形式，必须从 images 这个数组里面取字段，其他字段都有可能是 fallback 值
+   */
   const _download_current_media = async () => {
     if (!downloader_status.current_media) return;
     const { video, images } = downloader_status.current_media;
     const filename = build_filename(downloader_status.current_media);
-    const video_url =
-      video?.playerApi ?? video?.playerAddr ?? video.bitRateList?.[0]?.playApi;
-    if (video_url) {
-      // download video
-      download_file(video_url, filename);
-      return;
-    }
-    if (images) {
+    if (Array.isArray(images) && images.length !== 0) {
       // 下载图集
       // TODO 要是能支持 zip 打包会更好一点
       for (let idx = 0; idx < images.length; idx++) {
@@ -359,19 +459,28 @@ async function download_file(imgSrc, filename_input = "") {
         // 包含视频的图集
         const video = image?.video;
         if (video) {
-          const video_url =
-            video?.playApi ??
-            video.playAddr?.[0]?.src ??
-            video.bitRateList[0]?.playApi;
-          await download_file(video_url, `${filename}_${idx}`);
+          const video_urls = get_video_urls(video);
+          if (video_urls.length === 0) {
+            // 这里取不到url可能代表了数据错误 直接跳过
+            console.warn("[dy-dl]似乎遇到了错误数据，跳过下载", video);
+            continue;
+          }
+          await download_file(video_urls[0], `${filename}_${idx}`, video_urls);
           continue;
         }
         // 单纯的图片图集
         const img_url = image?.urlList?.[0];
         if (!img_url) continue;
-        await download_file(img_url, `${filename}_${idx}`);
+        await download_file(img_url, `${filename}_${idx}`, image.urlList);
       }
       return;
+    } else {
+      const video_urls = get_video_urls(video);
+      if (video_urls.length !== 0) {
+        // download video
+        download_file(video_urls[0], filename, video_urls);
+        return;
+      }
     }
     alert("[dy-dl]无法下载当前视频，尝试刷新、暂停、播放等操作后重试。");
   };
