@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.1.0
+// @version         1.1.1
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -531,6 +531,7 @@
                 // Delay to ensure content is populated
                 this._handleTooltip(/** @type {HTMLElement} */ (tooltipNode));
               });
+              return;
             }
           }
           // Fullscreen image modal
@@ -543,19 +544,16 @@
               // Delay for modal rendering
               this._handleModal(elementNode);
             });
+            return;
           }
           // Video player controls
           if (
             elementNode.localName === "xg-controls" ||
             elementNode.querySelector("xg-controls")
           ) {
-            const controls =
-              elementNode.localName === "xg-controls"
-                ? elementNode
-                : elementNode.querySelector("xg-controls");
-            if (controls) {
-              this._handleXgControl(/** @type {HTMLElement} */ (controls));
-            }
+            // FIXME: 这里有个问题，feed里面还有直播流，直播画面不应该有下载按钮，因为没用（不过有也没什么，不点就行了...）
+            this._handleXgControl(/** @type {HTMLElement} */ (elementNode));
+            return;
           }
         });
       });
