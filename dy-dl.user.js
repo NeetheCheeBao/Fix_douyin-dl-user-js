@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.1.1
+// @version         1.2.0
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -15,6 +15,44 @@
 
 (function () {
   "use strict";
+
+  class Config {
+    static global = new Config();
+
+    features = {
+      convert_webp_to_png: true,
+    };
+
+    _key = "__douyin-dl-user-js__";
+
+    constructor() {
+      try {
+        this.load();
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    toJSON() {
+      return {
+        features: this.features,
+      };
+    }
+
+    load() {
+      if (localStorage.getItem(this._key)) {
+        const data = JSON.parse(localStorage.getItem(this._key));
+        this.features = {
+          ...this.features,
+          ...data.features,
+        };
+      }
+    }
+
+    save() {
+      localStorage.setItem(this._key, JSON.stringify(this.toJSON()));
+    }
+  }
 
   class Downloader {
     constructor() {}
@@ -115,7 +153,7 @@
       const blob = await response.blob();
       let pngBlob = null;
 
-      if (isImage && isWebP) {
+      if (isImage && isWebP && Config.global.features.convert_webp_to_png) {
         try {
           pngBlob = await this.convertWebPToPNG(blob);
         } catch (error) {
@@ -237,6 +275,53 @@
       } else {
         alert(`[dy-dl]所有尝试下载都失败，请刷新重试`);
       }
+    }
+  }
+  class Modal {
+    /**
+     *
+     * @param {(root: HTMLElement) => any} callback
+     */
+    constructor(callback) {
+      this.overlay = document.createElement("div");
+      Object.assign(this.overlay.style, {
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100vw",
+        height: "100vh",
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      });
+
+      this.root = document.createElement("div");
+      Object.assign(this.root.style, {
+        backgroundColor: "#fff",
+        padding: "20px",
+        borderRadius: "8px",
+        minWidth: "300px",
+        minHeight: "150px",
+        boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+      });
+
+      // 阻止事件冒泡，防止点击 root 也触发关闭
+      this.root.addEventListener("click", (e) => e.stopPropagation());
+
+      this.overlay.addEventListener("click", () => this.close());
+
+      this.overlay.appendChild(this.root);
+      document.body.appendChild(this.overlay);
+
+      if (typeof callback === "function") {
+        callback(this.root);
+      }
+    }
+
+    close() {
+      this.overlay.remove();
     }
   }
 
@@ -459,26 +544,294 @@
       alert("[dy-dl]无法下载当前媒体，尝试刷新、暂停、播放等操作后重试。");
     }
 
+    // 下载封面
+    async download_thumb() {
+      if (!this.current_media) {
+        alert("[dy-dl]无当前媒体信息，请尝试播放视频或等待加载。");
+        return;
+      }
+      const { video, images = [], music } = this.current_media;
+      // 第一个是压缩的，所以用第二个
+      const thumb = video.coverUrlList[1];
+      const filename_base = this._build_filename(this.current_media);
+      this.downloader.download_file(thumb, `thumb_${filename_base}`);
+    }
+
+    // 显示媒体详情
+    async show_media_details() {
+      if (!this.current_media) {
+        alert("[dy-dl]无当前媒体信息，请尝试播放视频或等待加载。");
+        return;
+      }
+      // 点击后打开一个 modal 框，显示媒体详情，并提供下载链接
+      const modal = new Modal();
+      const { current_media } = this;
+      const { video, images, music } = current_media;
+
+      const is_video = video.bitRateList.length > 0;
+      const is_images = images.length > 0;
+
+      const video_details = `
+<fieldset>
+  <legend>视频</legend>
+  <table border="1" cellspacing="0" cellpadding="4" style="width: 100%; font-size: 12px;">
+    <thead>
+      <tr>
+        <th>清晰度</th>
+        <th>分辨率</th>
+        <th>格式</th>
+        <th>FPS</th>
+        <th>Bitrate (kbps)</th>
+        <th>大小</th>
+        <th>播放链接</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${video.bitRateList
+        .map(
+          (item) => `
+        <tr>
+          <td>${item.gearName}</td>
+          <td>${item.width}×${item.height}</td>
+          <td>${item.format}</td>
+          <td>${item.fps}</td>
+          <td>${(item.bitRate / 1000).toFixed(1)}</td>
+          <td>${
+            item.dataSize
+              ? (item.dataSize / 1024 / 1024).toFixed(2) + " MB"
+              : "-"
+          }</td>
+          <td>
+            ${
+              item.playAddr?.[0]?.src
+                ? `<a href="${item.playAddr[0].src}" target="_blank">播放</a>`
+                : "-"
+            }
+          </td>
+        </tr>
+      `
+        )
+        .join("")}
+    </tbody>
+  </table>
+</fieldset>      
+`;
+
+      const images_details_html = `
+<fieldset>
+  <legend>图集</legend>
+  <table border="1" cellspacing="0" cellpadding="4" style="width: 100%; font-size: 12px;">
+    <thead>
+      <tr>
+        <th>序号</th>
+        <th>类型</th>
+        <th>分辨率</th>
+        <th>大小</th>
+        <th>预览</th>
+        <th>下载</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${images
+        .map((img, idx) => {
+          const isVideo = !!img.video;
+          const thumbUrl = isVideo
+            ? img.video.coverUrlList?.[0] || ""
+            : img.urlList?.[0] || "";
+          const downloadUrl = isVideo
+            ? img.video.playAddr?.[0]?.src || ""
+            : img.downloadUrlList?.[0] || "";
+          const resolution = isVideo
+            ? `${img.video.width}×${img.video.height}`
+            : `${img.width}×${img.height}`;
+          const sizeMB = isVideo
+            ? img.video.dataSize
+              ? (img.video.dataSize / 1024 / 1024).toFixed(2) + " MB"
+              : "-"
+            : "-";
+          return `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${isVideo ? "视频" : "图片"}</td>
+          <td>${resolution}</td>
+          <td>${sizeMB}</td>
+          <td><img src="${thumbUrl}" style="max-width: 100px; max-height: 60px;" /></td>
+          <td>
+            ${
+              downloadUrl
+                ? `<a href="${downloadUrl}" target="_blank">下载</a>`
+                : "-"
+            }
+          </td>
+        </tr>`;
+        })
+        .join("")}
+    </tbody>
+  </table>
+</fieldset>
+`;
+
+      const music_details_html = `
+<fieldset>
+  <legend>音乐</legend>
+  <div style="display: flex; align-items: center; gap: 1rem;">
+    <img src="${
+      music.coverThumb?.urlList?.[0] || ""
+    }" alt="cover" style="width: 60px; height: 60px; object-fit: cover; border-radius: 6px;" />
+    <div style="flex: 1; font-size: 14px;">
+      <div><strong>标题：</strong>${music.title}</div>
+      <div><strong>作者：</strong>${music.author}</div>
+      <div><strong>专辑：</strong>${music.album}</div>
+      <div><strong>时长：</strong>${(music.duration / 1000).toFixed(1)} 秒</div>
+      <div>
+        <strong>播放：</strong>
+        ${
+          music.playUrl?.urlList?.[0]
+            ? `<a href="${music.playUrl.urlList[0]}" target="_blank">试听</a>`
+            : "-"
+        }
+      </div>
+    </div>
+  </div>
+</fieldset>
+`;
+
+      const details = DOMPatcher.render_html(`
+<div style="
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  max-width: 90vw;
+  padding: 1rem;
+  box-sizing: border-box;
+">
+  ${is_video ? video_details : ""}
+  ${is_images ? images_details_html : ""}
+  ${music_details_html}
+  <fieldset>
+  <legend>JSON <button id="json_select">选中</button> <button id="json_console">console</button></legend>
+  <pre style="max-height:20rem;overflow: auto;word-break: break-all;white-space: pre-wrap;"><code>${JSON.stringify(
+    this.current_media,
+    null,
+    2
+  )}</code></pre>
+  </fieldset>
+</div>
+`);
+      const $json_select = details.querySelector("#json_select");
+      $json_select.addEventListener("click", () => {
+        const $code = details.querySelector("code");
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        const range = document.createRange();
+        range.selectNodeContents($code);
+        selection.addRange(range);
+      });
+      const $json_console = details.querySelector("#json_console");
+      $json_console.addEventListener("click", () => {
+        console.log(JSON.parse(JSON.stringify(this.current_media)));
+      });
+      modal.root.appendChild(details);
+    }
+
     init() {
       this._start_detect_player_change();
+    }
+  }
+
+  class TooltipsButton {
+    /**
+     * 带有 hover 的按钮
+     *
+     * NOTE: dy-dl-video-btn 是用于标记是否注入用的
+     *
+     * @param {TooltipsButton} that
+     * @returns {string}
+     */
+    static _html_base = (that) => `
+<xg-icon
+  class="xgplayer-playclarity-setting dy-dl-video-btn"
+  data-state="normal"
+  data-index="11"
+>
+  <div class="gear isSmoothSwitchClarityLogin">
+    <div class="virtual">
+  </div>
+  <div
+    class="btn"
+    tabindex="0"
+  >
+    ${that.label}
+  </div>
+</div>
+</xg-icon>
+  `;
+
+    /**
+     *
+     * @param {string} label
+     * @param {{label?: string, callback?: Function, html?: string, render?: Function}[]} items
+     * @param {Function} onclick
+     */
+    constructor(label, items, onclick) {
+      this.label = label;
+      this.items = items;
+      this.onclick = onclick;
+    }
+
+    render() {
+      const root = DOMPatcher.render_html(TooltipsButton._html_base(this));
+      /**
+       * @type {HTMLElement}
+       */
+      const $gear = root.querySelector(".gear");
+      const $items_list = root.querySelector(".virtual");
+      const $btn = root.querySelector(".btn");
+
+      // 绑定 hover
+      $gear.addEventListener("mouseenter", () => $gear.classList.add("hover"));
+      $gear.addEventListener("mouseleave", () =>
+        $gear.classList.remove("hover")
+      );
+
+      // 渲染 items
+      for (const item of this.items) {
+        if (item.html) {
+          $items_list.appendChild(DOMPatcher.render_html(item.html));
+          continue;
+        }
+        if (item.render) {
+          $items_list.appendChild(item.render());
+          continue;
+        }
+        const $item = DOMPatcher.render_html(
+          `<div class="item">${item.label}</div>`
+        );
+        $item.addEventListener("click", item.callback);
+        $items_list.appendChild($item);
+      }
+
+      $btn.addEventListener("click", this.onclick);
+
+      return root;
     }
   }
 
   class DOMPatcher {
     /** @type {Downloader} */
     downloader;
-    /** @type {Function} */
-    downloadCurrentMediaFn;
+    /** @type {MediaHandler} */
+    handler;
     /** @type {MutationObserver} */
     observer;
 
     /**
      * @param {Downloader} downloader
-     * @param {Function} downloadCurrentMediaFn Already bound function from MediaHandler
+     * @param {MediaHandler} handler
      */
-    constructor(downloader, downloadCurrentMediaFn) {
+    constructor(downloader, handler) {
       this.downloader = downloader;
-      this.downloadCurrentMediaFn = downloadCurrentMediaFn;
+      this.handler = handler;
       this.observer = new MutationObserver(this._handleMutations.bind(this));
     }
 
@@ -634,22 +987,63 @@
       if (!right_grid) return;
       if (right_grid.querySelector(".dy-dl-video-btn")) return; // Button already exists
 
-      const downloadButtonHTML = `
-        <xg-icon class="xgplayer-autoplay-setting automatic-continuous dy-dl-video-btn" data-state="normal" data-index="9" style="order: 5;">
-          <div class="xgplayer-icon" data-e2e="dy-dl-video-download-button">
-            <div class="xgplayer-setting-label">
-              <span class="xgplayer-setting-title">下载</span>
-            </div>
-          </div>
-          <div class="xgTips"><span>保存本地</span><span class="shortcutKey">M</span></div>
-        </xg-icon>
-      `;
-      const downloadButton = DOMPatcher.render_html(downloadButtonHTML);
+      const btn = new TooltipsButton(
+        "插件",
+        [
+          {
+            html: `<div class="xgTips item"><span>快捷键：</span><span class="shortcutKey">M</span>`,
+          },
+          {
+            label: "需求/反馈",
+            callback: () => {
+              window.open(
+                "https://github.com/zhzLuke96/douyin-dl-user-js/issues",
+                "_blank",
+                "noopener,noreferrer"
+              );
+            },
+          },
+          {
+            render: () => {
+              const encode_to_png_switch = DOMPatcher.render_html(
+                `<div class="item"><label><input type="checkbox"/> WebP转码PNG</label></item>`
+              );
+              const $input = encode_to_png_switch.querySelector("input");
+              $input.checked = Config.global.features.convert_webp_to_png;
+              $input.addEventListener("click", () => {
+                Config.global.features.convert_webp_to_png = $input.checked;
+                Config.global.save();
+              });
+              return encode_to_png_switch;
+            },
+          },
+          {
+            label: "媒体详情",
+            callback: () => {
+              this.handler.show_media_details();
+            },
+          },
+          {
+            label: "下载封面",
+            callback: () => {
+              this.handler.download_thumb();
+            },
+          },
+          {
+            label: "下载",
+            callback: () => {
+              this.handler.download_current_media();
+            },
+          },
+        ],
+        (e) => {
+          // TODO: 没用... 会被劫持，所以移动到上面的 item 中去了
+          // e.stopPropagation();
+          // this.downloadCurrentMediaFn();
+        }
+      );
+      const downloadButton = btn.render();
 
-      downloadButton.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.downloadCurrentMediaFn();
-      });
       // Try to insert before volume or settings for better placement
       const qualitySwitch = right_grid.querySelector(
         ".xgplayer-quality-setting"
@@ -712,10 +1106,7 @@
   const downloader = new Downloader();
   const mediaHandler = new MediaHandler(downloader);
   // Pass the already bound method from mediaHandler instance
-  const domPatcher = new DOMPatcher(
-    downloader,
-    mediaHandler.download_current_media
-  );
+  const domPatcher = new DOMPatcher(downloader, mediaHandler);
   const hotkeyManager = new HotkeyManager();
 
   mediaHandler.init(); // Starts player detection
