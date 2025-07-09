@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.2.0
+// @version         1.2.1
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -603,8 +603,8 @@
           }</td>
           <td>
             ${
-              item.playAddr?.[0]?.src
-                ? `<a href="${item.playAddr[0].src}" target="_blank">播放</a>`
+              item.playApi
+                ? `<a href="${item.playApi}" target="_blank">播放</a>`
                 : "-"
             }
           </td>
@@ -676,7 +676,7 @@
   <legend>音乐</legend>
   <div style="display: flex; align-items: center; gap: 1rem;">
     <img src="${
-      music.coverThumb?.urlList?.[0] || ""
+      music?.coverThumb?.urlList?.[0] || ""
     }" alt="cover" style="width: 60px; height: 60px; object-fit: cover; border-radius: 6px;" />
     <div style="flex: 1; font-size: 14px;">
       <div><strong>标题：</strong>${music.title}</div>
@@ -707,7 +707,7 @@
 ">
   ${is_video ? video_details : ""}
   ${is_images ? images_details_html : ""}
-  ${music_details_html}
+  ${music ? music_details_html : ""}
   <fieldset>
   <legend>JSON <button id="json_select">选中</button> <button id="json_console">console</button></legend>
   <pre style="max-height:20rem;overflow: auto;word-break: break-all;white-space: pre-wrap;"><code>${JSON.stringify(
