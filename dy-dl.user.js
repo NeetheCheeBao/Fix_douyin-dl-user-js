@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.2.1
+// @version         1.2.2
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -702,6 +702,8 @@
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 1rem;
   max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
   padding: 1rem;
   box-sizing: border-box;
 ">
