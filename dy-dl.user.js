@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.2.2
+// @version         1.2.3
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -15,6 +15,15 @@
 
 (function () {
   "use strict";
+
+  /**
+   * 模板字符串函数
+   * 用于占位标记用来触发编辑器高亮和格式化，没有实际作用
+   *
+   * @type {function(strings: TemplateStringsArray, ...values: any[]): string}}
+   */
+  const html = (strings, ...values) =>
+    strings.reduce((acc, str, i) => acc + str + (values[i] || ""), "");
 
   class Config {
     static global = new Config();
@@ -279,8 +288,8 @@
   }
   class Modal {
     /**
-     *
-     * @param {(root: HTMLElement) => any} callback
+     * callback会在创建element之后调用
+     * @param {(root: HTMLElement, overlay: Element) => any} callback
      */
     constructor(callback) {
       this.overlay = document.createElement("div");
@@ -316,7 +325,7 @@
       document.body.appendChild(this.overlay);
 
       if (typeof callback === "function") {
-        callback(this.root);
+        callback(this.root, this.overlay);
       }
     }
 
@@ -550,7 +559,7 @@
         alert("[dy-dl]无当前媒体信息，请尝试播放视频或等待加载。");
         return;
       }
-      const { video, images = [], music } = this.current_media;
+      const { video } = this.current_media;
       // 第一个是压缩的，所以用第二个
       const thumb = video.coverUrlList[1];
       const filename_base = this._build_filename(this.current_media);
@@ -563,176 +572,532 @@
         alert("[dy-dl]无当前媒体信息，请尝试播放视频或等待加载。");
         return;
       }
+
+      // 假设 current_media 的类型是 DouyinMedia.MediaRoot
+      const current_media = this.current_media;
+
       // 点击后打开一个 modal 框，显示媒体详情，并提供下载链接
-      const modal = new Modal();
-      const { current_media } = this;
-      const { video, images, music } = current_media;
-
-      const is_video = video.bitRateList.length > 0;
-      const is_images = images.length > 0;
-
-      const video_details = `
-<fieldset>
-  <legend>视频</legend>
-  <table border="1" cellspacing="0" cellpadding="4" style="width: 100%; font-size: 12px;">
-    <thead>
-      <tr>
-        <th>清晰度</th>
-        <th>分辨率</th>
-        <th>格式</th>
-        <th>FPS</th>
-        <th>Bitrate (kbps)</th>
-        <th>大小</th>
-        <th>播放链接</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${video.bitRateList
-        .map(
-          (item) => `
-        <tr>
-          <td>${item.gearName}</td>
-          <td>${item.width}×${item.height}</td>
-          <td>${item.format}</td>
-          <td>${item.fps}</td>
-          <td>${(item.bitRate / 1000).toFixed(1)}</td>
-          <td>${
-            item.dataSize
-              ? (item.dataSize / 1024 / 1024).toFixed(2) + " MB"
-              : "-"
-          }</td>
-          <td>
-            ${
-              item.playApi
-                ? `<a href="${item.playApi}" target="_blank">播放</a>`
-                : "-"
-            }
-          </td>
-        </tr>
-      `
-        )
-        .join("")}
-    </tbody>
-  </table>
-</fieldset>      
-`;
-
-      const images_details_html = `
-<fieldset>
-  <legend>图集</legend>
-  <table border="1" cellspacing="0" cellpadding="4" style="width: 100%; font-size: 12px;">
-    <thead>
-      <tr>
-        <th>序号</th>
-        <th>类型</th>
-        <th>分辨率</th>
-        <th>大小</th>
-        <th>预览</th>
-        <th>下载</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${images
-        .map((img, idx) => {
-          const isVideo = !!img.video;
-          const thumbUrl = isVideo
-            ? img.video.coverUrlList?.[0] || ""
-            : img.urlList?.[0] || "";
-          const downloadUrl = isVideo
-            ? img.video.playAddr?.[0]?.src || ""
-            : img.downloadUrlList?.[0] || "";
-          const resolution = isVideo
-            ? `${img.video.width}×${img.video.height}`
-            : `${img.width}×${img.height}`;
-          const sizeMB = isVideo
-            ? img.video.dataSize
-              ? (img.video.dataSize / 1024 / 1024).toFixed(2) + " MB"
-              : "-"
-            : "-";
-          return `
-        <tr>
-          <td>${idx + 1}</td>
-          <td>${isVideo ? "视频" : "图片"}</td>
-          <td>${resolution}</td>
-          <td>${sizeMB}</td>
-          <td><img src="${thumbUrl}" style="max-width: 100px; max-height: 60px;" /></td>
-          <td>
-            ${
-              downloadUrl
-                ? `<a href="${downloadUrl}" target="_blank">下载</a>`
-                : "-"
-            }
-          </td>
-        </tr>`;
-        })
-        .join("")}
-    </tbody>
-  </table>
-</fieldset>
-`;
-
-      const music_details_html = `
-<fieldset>
-  <legend>音乐</legend>
-  <div style="display: flex; align-items: center; gap: 1rem;">
-    <img src="${
-      music?.coverThumb?.urlList?.[0] || ""
-    }" alt="cover" style="width: 60px; height: 60px; object-fit: cover; border-radius: 6px;" />
-    <div style="flex: 1; font-size: 14px;">
-      <div><strong>标题：</strong>${music.title}</div>
-      <div><strong>作者：</strong>${music.author}</div>
-      <div><strong>专辑：</strong>${music.album}</div>
-      <div><strong>时长：</strong>${(music.duration / 1000).toFixed(1)} 秒</div>
-      <div>
-        <strong>播放：</strong>
-        ${
-          music.playUrl?.urlList?.[0]
-            ? `<a href="${music.playUrl.urlList[0]}" target="_blank">试听</a>`
-            : "-"
+      const modal = new Modal((root, overlay) => {
+        // issues #18 https://github.com/zhzLuke96/douyin-dl-user-js/issues/18
+        // overlay.style.zIndex = 999999;
+        // 需要放在 slidelist 里，不然全屏之后看不见
+        const $fullscreenElement = document.fullscreenElement;
+        if ($fullscreenElement) {
+          // FIXME: 这里有个问题，滚轮事件有可能被 parent 捕获了...没想到什么好办法解决...
+          $slidelist.appendChild(overlay);
         }
-      </div>
-    </div>
-  </div>
-</fieldset>
-`;
+      });
 
-      const details = DOMPatcher.render_html(`
-<div style="
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1rem;
-  max-width: 90vw;
-  max-height: 90vh;
-  overflow: auto;
-  padding: 1rem;
-  box-sizing: border-box;
-">
-  ${is_video ? video_details : ""}
-  ${is_images ? images_details_html : ""}
-  ${music ? music_details_html : ""}
-  <fieldset>
-  <legend>JSON <button id="json_select">选中</button> <button id="json_console">console</button></legend>
-  <pre style="max-height:20rem;overflow: auto;word-break: break-all;white-space: pre-wrap;"><code>${JSON.stringify(
-    this.current_media,
-    null,
-    2
-  )}</code></pre>
-  </fieldset>
-</div>
-`);
+      // --- 1. 辅助函数 (Helpers for rendering) ---
+      const render_helpers = {
+        formatTimestamp: (ts) =>
+          ts ? new Date(ts * 1000).toLocaleString() : "N/A",
+        formatCount: (num) => {
+          if (num === undefined || num === null) return "N/A";
+          if (num > 10000) return (num / 10000).toFixed(1) + " 万";
+          return num.toString();
+        },
+        renderKeyValue: (label, value) => html`
+          <div
+            style="display: flex; padding: 4px 0; font-size: 14px; border-bottom: 1px solid #f0f0f0;"
+          >
+            <strong style="width: 100px; flex-shrink: 0; color: #555;"
+              >${label}</strong
+            >
+            <span style="flex-grow: 1; color: #333; word-break: break-all;"
+              >${value || "-"}</span
+            >
+          </div>
+        `,
+        renderCopyableValue: (label, value) => {
+          if (!value) return render_helpers.renderKeyValue(label, value);
+          return html`
+            <div
+              style="display: flex; padding: 4px 0; font-size: 14px; align-items: center; border-bottom: 1px solid #f0f0f0;"
+            >
+              <strong style="width: 100px; flex-shrink: 0; color: #555;"
+                >${label}</strong
+              >
+              <span
+                style="flex-grow: 1; color: #333; word-break: break-all; margin-right: 8px;"
+                >${value}</span
+              >
+              <button
+                class="dy-dl-copy-btn"
+                data-copy-text="${value}"
+                style="padding: 2px 6px; font-size: 12px; cursor: pointer;"
+              >
+                复制
+              </button>
+            </div>
+          `;
+        },
+      };
+
+      // --- 2. 准备每个 Tab 的内容 ---
+      const {
+        video,
+        images,
+        music,
+        authorInfo,
+        stats,
+        desc,
+        createTime,
+        awemeId,
+        shareInfo,
+        awemeControl,
+      } = current_media;
+      const tabs = {};
+
+      // Tab 1: 媒体资源
+      const is_video = video && video.bitRateList.length > 0;
+      const is_images = images && images.length > 0;
+
+      const cover_details_html = (() => {
+        if (!video || !video.coverUrlList || video.coverUrlList.length === 0) {
+          return "";
+        }
+        // 优先使用索引为 1 的高清封面，如果不存在则回退到索引 0
+        const cover_url = video.coverUrlList[1] || video.coverUrlList[0];
+        const filename_base = this._build_filename(current_media);
+        const cover_filename = `cover_${filename_base}.jpeg`;
+
+        return html`
+          <fieldset>
+            <legend>视频封面</legend>
+            <div style="display: flex; gap: 1rem; align-items: flex-start;">
+              <img
+                src="${cover_url}"
+                alt="Video Cover"
+                style="width: 120px; max-height: 180px; object-fit: cover; border-radius: 4px; border: 1px solid #ccc;"
+              />
+              <div
+                style="font-size: 14px; display: flex; flex-direction: column; gap: 0.5rem;"
+              >
+                <p style="margin: 0;">
+                  <strong>分辨率:</strong> ${video.width} × ${video.height}
+                </p>
+                <div style="display: flex; gap: 0.5rem; margin-top: 8px;">
+                  <a
+                    href="${cover_url}"
+                    target="_blank"
+                    style="padding: 4px 10px; background: #6c757d; color: white; text-decoration: none; border-radius: 4px;"
+                    >新标签打开</a
+                  >
+                  <a
+                    href="${cover_url}"
+                    download="${cover_filename}"
+                    style="padding: 4px 10px; background: #007bff; color: white; text-decoration: none; border-radius: 4px;"
+                    >下载封面</a
+                  >
+                </div>
+              </div>
+            </div>
+          </fieldset>
+        `;
+      })();
+
+      const video_details_html = is_video
+        ? html` <fieldset>
+            <legend>视频</legend>
+            <table
+              border="1"
+              cellspacing="0"
+              cellpadding="4"
+              style="width: 100%; font-size: 12px;"
+            >
+              <thead>
+                <tr>
+                  <th>清晰度</th>
+                  <th>分辨率</th>
+                  <th>格式</th>
+                  <th>FPS</th>
+                  <th>Bitrate (kbps)</th>
+                  <th>大小</th>
+                  <th>播放链接</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${video.bitRateList
+                  .map(
+                    (item) => html` <tr>
+                      <td>${item.gearName}</td>
+                      <td>${item.width}×${item.height}</td>
+                      <td>${item.format}</td>
+                      <td>${item.fps}</td>
+                      <td>${(item.bitRate / 1000).toFixed(1)}</td>
+                      <td>
+                        ${item.dataSize
+                          ? (item.dataSize / 1024 / 1024).toFixed(2) + " MB"
+                          : "-"}
+                      </td>
+                      <td>
+                        ${item.playApi
+                          ? `<a href="${item.playApi}" target="_blank">播放</a>`
+                          : "-"}
+                      </td>
+                    </tr>`
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </fieldset>`
+        : "";
+
+      const images_details_html = is_images
+        ? html` <fieldset>
+            <legend>图集</legend>
+            <table
+              border="1"
+              cellspacing="0"
+              cellpadding="4"
+              style="width: 100%; font-size: 12px;"
+            >
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>类型</th>
+                  <th>分辨率</th>
+                  <th>大小</th>
+                  <th>预览</th>
+                  <th>下载</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${images
+                  .map((img, idx) => {
+                    const isVideo = !!img.video;
+                    const thumbUrl = isVideo
+                      ? img.video.coverUrlList?.[0] || ""
+                      : img.urlList?.[0] || "";
+                    const downloadUrl = isVideo
+                      ? img.video.playAddr?.[0]?.src || ""
+                      : img.downloadUrlList?.[0] || "";
+                    const resolution = isVideo
+                      ? `${img.video.width}×${img.video.height}`
+                      : `${img.width}×${img.height}`;
+                    const sizeMB =
+                      isVideo && img.video.dataSize
+                        ? (img.video.dataSize / 1024 / 1024).toFixed(2) + " MB"
+                        : "-";
+                    return html` <tr>
+                      <td>${idx + 1}</td>
+                      <td>${isVideo ? "视频" : "图片"}</td>
+                      <td>${resolution}</td>
+                      <td>${sizeMB}</td>
+                      <td>
+                        <img
+                          src="${thumbUrl}"
+                          style="max-width: 100px; max-height: 60px;"
+                        />
+                      </td>
+                      <td>
+                        ${downloadUrl
+                          ? `<a href="${downloadUrl}" target="_blank">下载</a>`
+                          : "-"}
+                      </td>
+                    </tr>`;
+                  })
+                  .join("")}
+              </tbody>
+            </table>
+          </fieldset>`
+        : "";
+
+      const music_details_html = music
+        ? html` <fieldset>
+            <legend>音乐</legend>
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              <img
+                src="${music?.coverThumb?.urlList?.[0] || ""}"
+                alt="cover"
+                style="width: 60px; height: 60px; object-fit: cover; border-radius: 6px;"
+              />
+              <div style="flex: 1; font-size: 14px;">
+                <div><strong>标题：</strong>${music.title}</div>
+                <div><strong>作者：</strong>${music.author}</div>
+                <div>
+                  <strong>时长：</strong>${(music.duration / 1000).toFixed(1)}
+                  秒
+                </div>
+                <div>
+                  <strong>播放：</strong>${music.playUrl?.urlList?.[0]
+                    ? `<a href="${music.playUrl.urlList[0]}" target="_blank">试听</a>`
+                    : "-"}
+                </div>
+              </div>
+            </div>
+          </fieldset>`
+        : "";
+
+      tabs.media = {
+        title: "媒体资源",
+        content: `<div style="display: flex; flex-direction: column; gap: 1rem;">${cover_details_html}${video_details_html}${images_details_html}${music_details_html}</div>`,
+      };
+
+      // Tab 2: 作者信息
+      if (authorInfo) {
+        tabs.author = {
+          title: "作者信息",
+          content: html`
+            <div
+              style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;"
+            >
+              <img
+                src="${authorInfo.avatarThumb.urlList[0]}"
+                style="width: 80px; height: 80px; border-radius: 50%;"
+              />
+              <div style="flex-grow: 1;">
+                <h3 style="margin: 0 0 8px 0;">${authorInfo.nickname}</h3>
+                <a
+                  href="https://www.douyin.com/user/${authorInfo.secUid}"
+                  target="_blank"
+                  style="display: inline-block; padding: 4px 12px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px; font-size: 14px;"
+                  >访问主页</a
+                >
+              </div>
+            </div>
+            <div>
+              ${render_helpers.renderKeyValue(
+                "认证信息",
+                authorInfo.customVerify || authorInfo.enterpriseVerifyReason
+              )}
+              ${render_helpers.renderCopyableValue("UID", authorInfo.uid)}
+              ${render_helpers.renderCopyableValue("SecUID", authorInfo.secUid)}
+              ${render_helpers.renderKeyValue(
+                "粉丝数",
+                render_helpers.formatCount(authorInfo.followerCount)
+              )}
+              ${render_helpers.renderKeyValue(
+                "获赞数",
+                render_helpers.formatCount(authorInfo.totalFavorited)
+              )}
+            </div>
+          `,
+        };
+      }
+
+      // Tab 3: 作品信息
+      tabs.post = {
+        title: "作品信息",
+        content: html`
+          <fieldset>
+            <legend>描述</legend>
+            <p
+              style="font-size: 14px; white-space: pre-wrap; line-height: 1.6;"
+            >
+              ${desc || "无"}
+            </p>
+          </fieldset>
+          <fieldset>
+            <legend>详情</legend>
+            ${render_helpers.renderKeyValue(
+              "发布时间",
+              render_helpers.formatTimestamp(createTime)
+            )}
+            ${render_helpers.renderCopyableValue(
+              "分享链接",
+              shareInfo.shareUrl
+            )}
+            ${render_helpers.renderKeyValue(
+              "点赞数",
+              render_helpers.formatCount(stats.diggCount)
+            )}
+            ${render_helpers.renderKeyValue(
+              "评论数",
+              render_helpers.formatCount(stats.commentCount)
+            )}
+            ${render_helpers.renderKeyValue(
+              "收藏数",
+              render_helpers.formatCount(stats.collectCount)
+            )}
+            ${render_helpers.renderKeyValue(
+              "分享数",
+              render_helpers.formatCount(stats.shareCount)
+            )}
+          </fieldset>
+        `,
+      };
+
+      // Tab 4: 高级信息
+      tabs.advanced = {
+        title: "高级信息",
+        content: html`
+          <fieldset>
+            <legend>ID</legend>
+            ${render_helpers.renderCopyableValue("Aweme ID", awemeId)}
+            ${render_helpers.renderCopyableValue(
+              "Group ID",
+              current_media.groupId
+            )}
+          </fieldset>
+          <fieldset>
+            <legend>权限控制</legend>
+            ${render_helpers.renderKeyValue(
+              "允许评论",
+              awemeControl?.canComment ? "是" : "否"
+            )}
+            ${render_helpers.renderKeyValue(
+              "允许分享",
+              awemeControl?.canShare ? "是" : "否"
+            )}
+            ${render_helpers.renderKeyValue(
+              "允许下载",
+              current_media.download?.allowDownload ? "是" : "否"
+            )}
+            ${render_helpers.renderKeyValue(
+              "是否私密",
+              current_media.isPrivate ? "是" : "否"
+            )}
+          </fieldset>
+        `,
+      };
+
+      // Tab 5: 完整 JSON
+      tabs.json = {
+        title: "完整 JSON",
+        content: html` <fieldset>
+          <legend>
+            JSON <button id="json_select">选中</button>
+            <button id="json_console">console</button>
+          </legend>
+          <pre
+            style="max-height: 20rem; overflow: auto; word-break: break-all; white-space: pre-wrap;"
+          ><code>${JSON.stringify(current_media, null, 2)}</code></pre>
+        </fieldset>`,
+      };
+
+      // --- 3. 构建最终的 UI ---
+      const tabKeys = Object.keys(tabs);
+      const details = DOMPatcher.render_html(html`
+        <div class="dy-dl-modal-container">
+          <style>
+            .dy-dl-modal-container {
+              display: flex;
+              flex-direction: column;
+              max-width: 90vw;
+              max-height: 90vh;
+              width: 800px;
+              padding: 1rem;
+              box-sizing: border-box;
+              background: #fff;
+            }
+            .dy-dl-nav {
+              display: flex;
+              border-bottom: 1px solid #ccc;
+              margin-bottom: 1rem;
+              flex-shrink: 0;
+            }
+            .dy-dl-nav-button {
+              padding: 0.5rem 1rem;
+              border: none;
+              background: transparent;
+              cursor: pointer;
+              font-size: 14px;
+              border-bottom: 2px solid transparent;
+              margin-bottom: -1px;
+            }
+            .dy-dl-nav-button.active {
+              color: #007bff;
+              border-bottom-color: #007bff;
+              font-weight: bold;
+            }
+            .dy-dl-tab-content {
+              flex-grow: 1;
+              overflow-y: auto;
+              padding-right: 10px;
+            }
+            .dy-dl-tab-panel {
+              display: none;
+            }
+            .dy-dl-tab-panel.active {
+              display: block;
+            }
+            .dy-dl-tab-panel fieldset {
+              border: 1px solid #ddd;
+              border-radius: 4px;
+              margin-bottom: 1rem;
+              padding: 0.5rem 1rem;
+            }
+            .dy-dl-tab-panel legend {
+              font-weight: bold;
+              color: #333;
+            }
+          </style>
+          <nav class="dy-dl-nav">
+            ${tabKeys
+              .map(
+                (key) =>
+                  `<button class="dy-dl-nav-button" data-tab-id="${key}">${tabs[key].title}</button>`
+              )
+              .join("")}
+          </nav>
+          <div class="dy-dl-tab-content">
+            ${tabKeys
+              .map(
+                (key) =>
+                  `<div class="dy-dl-tab-panel" data-tab-id="${key}">${tabs[key].content}</div>`
+              )
+              .join("")}
+          </div>
+        </div>
+      `);
+
+      // --- 4. 添加交互逻辑 ---
+      const navButtons = details.querySelectorAll(".dy-dl-nav-button");
+      const tabPanels = details.querySelectorAll(".dy-dl-tab-panel");
+
+      function switchTab(tabId) {
+        navButtons.forEach((btn) =>
+          btn.classList.toggle("active", btn.dataset.tabId === tabId)
+        );
+        tabPanels.forEach((panel) =>
+          panel.classList.toggle("active", panel.dataset.tabId === tabId)
+        );
+      }
+
+      navButtons.forEach((button) => {
+        button.addEventListener("click", () => switchTab(button.dataset.tabId));
+      });
+
+      if (tabKeys.length > 0) {
+        switchTab(tabKeys[0]);
+      }
+
       const $json_select = details.querySelector("#json_select");
-      $json_select.addEventListener("click", () => {
-        const $code = details.querySelector("code");
-        const selection = window.getSelection();
-        selection.removeAllRanges();
-        const range = document.createRange();
-        range.selectNodeContents($code);
-        selection.addRange(range);
-      });
+      if ($json_select) {
+        $json_select.addEventListener("click", () => {
+          const $code = details.querySelector("code");
+          if (!$code) return;
+          window.getSelection().selectAllChildren($code);
+        });
+      }
+
       const $json_console = details.querySelector("#json_console");
-      $json_console.addEventListener("click", () => {
-        console.log(JSON.parse(JSON.stringify(this.current_media)));
+      if ($json_console) {
+        $json_console.addEventListener("click", () => {
+          console.log(JSON.parse(JSON.stringify(this.current_media)));
+        });
+      }
+
+      details.querySelectorAll(".dy-dl-copy-btn").forEach((button) => {
+        button.addEventListener("click", (e) => {
+          const textToCopy = e.target.dataset.copyText;
+          navigator.clipboard
+            .writeText(textToCopy)
+            .then(() => {
+              e.target.textContent = "已复制!";
+              setTimeout(() => {
+                e.target.textContent = "复制";
+              }, 2000);
+            })
+            .catch((err) => {
+              console.error("复制失败: ", err);
+              alert("复制失败!");
+            });
+        });
       });
+
       modal.root.appendChild(details);
     }
 
@@ -750,24 +1115,18 @@
      * @param {TooltipsButton} that
      * @returns {string}
      */
-    static _html_base = (that) => `
-<xg-icon
-  class="xgplayer-playclarity-setting dy-dl-video-btn"
-  data-state="normal"
-  data-index="11"
->
-  <div class="gear isSmoothSwitchClarityLogin">
-    <div class="virtual">
-  </div>
-  <div
-    class="btn"
-    tabindex="0"
-  >
-    ${that.label}
-  </div>
-</div>
-</xg-icon>
-  `;
+    static _html_base = (that) => html`
+      <xg-icon
+        class="xgplayer-playclarity-setting dy-dl-video-btn"
+        data-state="normal"
+        data-index="11"
+      >
+        <div class="gear isSmoothSwitchClarityLogin">
+          <div class="virtual"></div>
+          <div class="btn" tabindex="0">${that.label}</div>
+        </div>
+      </xg-icon>
+    `;
 
     /**
      *
