@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.2.3
+// @version         1.2.4
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -579,12 +579,12 @@
       // 点击后打开一个 modal 框，显示媒体详情，并提供下载链接
       const modal = new Modal((root, overlay) => {
         // issues #18 https://github.com/zhzLuke96/douyin-dl-user-js/issues/18
-        // overlay.style.zIndex = 999999;
+        overlay.style.zIndex = 999999;
         // 需要放在 slidelist 里，不然全屏之后看不见
         const $fullscreenElement = document.fullscreenElement;
         if ($fullscreenElement) {
           // FIXME: 这里有个问题，滚轮事件有可能被 parent 捕获了...没想到什么好办法解决...
-          $slidelist.appendChild(overlay);
+          $fullscreenElement.appendChild(overlay);
         }
       });
 
