@@ -40,9 +40,7 @@
 
 点击【插件>媒体详情】可以查看视频分辨率、图集列表、音乐、JSON
 
-![image](https://github.com/user-attachments/assets/21c83887-bbe1-47a4-b021-57b384f4a5b5)
-
-> UI 有待优化，基本操作就是 【播放】 【试听】 【下载】 等几个按钮
+<img width="840" height="655" alt="image" src="https://github.com/user-attachments/assets/08f8ae3b-59a2-489a-b9cb-a2182643c6f6" />
 
 ### 图片转码
 
