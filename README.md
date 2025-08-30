@@ -1,4 +1,4 @@
-7# douyin-dl-user-js
+# douyin-dl-user-js
 
 抖音 web 端下载拓展
 
