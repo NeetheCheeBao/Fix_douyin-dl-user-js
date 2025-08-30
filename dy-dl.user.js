@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.2.4
+// @version         1.2.5
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -804,6 +804,7 @@
           </fieldset>`
         : "";
 
+      // NOTE: music.duration 的单位就是秒
       const music_details_html = music
         ? html` <fieldset>
             <legend>音乐</legend>
@@ -816,10 +817,7 @@
               <div style="flex: 1; font-size: 14px;">
                 <div><strong>标题：</strong>${music.title}</div>
                 <div><strong>作者：</strong>${music.author}</div>
-                <div>
-                  <strong>时长：</strong>${(music.duration / 1000).toFixed(1)}
-                  秒
-                </div>
+                <div><strong>时长：</strong>${music.duration} 秒</div>
                 <div>
                   <strong>播放：</strong>${music.playUrl?.urlList?.[0]
                     ? `<a href="${music.playUrl.urlList[0]}" target="_blank">试听</a>`
