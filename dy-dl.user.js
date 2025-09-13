@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.2.5
+// @version         1.2.6
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -334,6 +334,11 @@
     }
   }
 
+  /**
+   * 这个类是主要逻辑
+   *
+   * 包含如何解析操作、解析从player里提取的media对象
+   */
   class MediaHandler {
     /** @type {import("./types").DouyinPlayer.PlayerInstance | null} */
     player = null;
@@ -1181,16 +1186,20 @@
     downloader;
     /** @type {MediaHandler} */
     handler;
+    /** @type {VideoHandler} */
+    videoHandler;
     /** @type {MutationObserver} */
     observer;
 
     /**
      * @param {Downloader} downloader
      * @param {MediaHandler} handler
+     * @param {VideoHandler} videoHandler
      */
-    constructor(downloader, handler) {
+    constructor(downloader, handler, videoHandler) {
       this.downloader = downloader;
       this.handler = handler;
+      this.videoHandler = videoHandler;
       this.observer = new MutationObserver(this._handleMutations.bind(this));
     }
 
@@ -1389,6 +1398,18 @@
             },
           },
           {
+            label: "复制视频帧",
+            callback: () => {
+              this.videoHandler.copy_current_frame();
+            },
+          },
+          {
+            label: "下载视频帧",
+            callback: () => {
+              this.videoHandler.download_current_frame();
+            },
+          },
+          {
             label: "下载",
             callback: () => {
               this.handler.download_current_media();
@@ -1460,12 +1481,105 @@
     }
   }
 
+  /**
+   * 和视频相关的操作
+   *
+   * 比如 截图当前视频帧
+   */
+  class VideoHandler {
+    get $video() {
+      // 因为是虚拟列表所以存在三个（也可能更多） video 元素
+      const videos = document.querySelectorAll("xg-video-container video");
+      // 我们找到可见的，并且最大的那个
+      let maxVideo = null;
+      let maxArea = 0;
+
+      videos.forEach((video) => {
+        const rect = video.getBoundingClientRect();
+        const isVisible =
+          rect.width > 0 &&
+          rect.height > 0 &&
+          rect.bottom > 0 &&
+          rect.right > 0 &&
+          rect.top < window.innerHeight &&
+          rect.left < window.innerWidth;
+
+        if (isVisible) {
+          const area = rect.width * rect.height;
+          if (area > maxArea) {
+            maxArea = area;
+            maxVideo = video;
+          }
+        }
+      });
+
+      return maxVideo;
+    }
+    /**
+     * 截取当前视频帧，返回 Blob
+     */
+    async capture_current_frame(video = this.$video) {
+      if (!video) {
+        alert(
+          "没有找到可见的视频元素。注：截屏功能只能截图视频作品，如果你确定是视频作品并且仍然报错，请尝试刷新页面。"
+        );
+        return;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      return new Promise((resolve) => {
+        canvas.toBlob((blob) => resolve(blob), "image/png");
+      });
+    }
+
+    /**
+     * 复制当前视频帧到剪贴板
+     */
+    async copy_current_frame(video = this.$video) {
+      const blob = await this.capture_current_frame(video);
+      if (!blob) return;
+
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({ "image/png": blob }),
+        ]);
+        alert("视频帧已复制到剪贴板");
+      } catch (err) {
+        console.error("复制失败：", err);
+        alert("复制失败，请确保您有权限访问剪贴板。");
+      }
+    }
+
+    /**
+     * 下载当前视频帧
+     */
+    async download_current_frame(video = this.$video) {
+      const blob = await this.capture_current_frame(video);
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      // TODO: 这里下载名字其实可以用视频标题之类的 但是，这个功能可能用复制的多，下载的情况估计不多
+      a.download = "video-frame.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  }
+
   // ========== Main Script Logic =============
 
   const downloader = new Downloader();
   const mediaHandler = new MediaHandler(downloader);
+  const videoHandler = new VideoHandler();
   // Pass the already bound method from mediaHandler instance
-  const domPatcher = new DOMPatcher(downloader, mediaHandler);
+  const domPatcher = new DOMPatcher(downloader, mediaHandler, videoHandler);
   const hotkeyManager = new HotkeyManager();
 
   mediaHandler.init(); // Starts player detection
