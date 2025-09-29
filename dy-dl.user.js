@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            抖音下载
 // @namespace       https://github.com/zhzLuke96/douyin-dl-user-js
-// @version         1.2.6
+// @version         1.2.7
 // @description     为web版抖音增加下载按钮
 // @author          zhzluke96
 // @match           https://*.douyin.com/*
@@ -413,6 +413,13 @@
       // Potentially listen to other events like 'pause' or 'videochange' if available and needed
     }
 
+    /**
+     * !!!
+     * 此为核心逻辑
+     * !!!
+     *
+     * NOTE: 有可能在某次抖音更新之后就不可用，依赖于 xg-video 对全局状态注入
+     */
     async _start_detect_player_change() {
       while (1) {
         // @ts-ignore // window.player is not typed here
@@ -1185,21 +1192,24 @@
     /** @type {Downloader} */
     downloader;
     /** @type {MediaHandler} */
-    handler;
+    mediaHandler;
     /** @type {VideoHandler} */
     videoHandler;
+    /** @type {DanmakuHandler} */
+    danmakuHandler;
     /** @type {MutationObserver} */
     observer;
 
     /**
-     * @param {Downloader} downloader
-     * @param {MediaHandler} handler
-     * @param {VideoHandler} videoHandler
+     * @param {{downloader: Downloader, mediaHandler: MediaHandler, videoHandler: VideoHandler, danmakuHandler: DanmakuHandler}} options
      */
-    constructor(downloader, handler, videoHandler) {
+    constructor(options) {
+      const { downloader, mediaHandler, videoHandler, danmakuHandler } =
+        options;
       this.downloader = downloader;
-      this.handler = handler;
+      this.mediaHandler = mediaHandler;
       this.videoHandler = videoHandler;
+      this.danmakuHandler = danmakuHandler;
       this.observer = new MutationObserver(this._handleMutations.bind(this));
     }
 
@@ -1388,13 +1398,28 @@
           {
             label: "媒体详情",
             callback: () => {
-              this.handler.show_media_details();
+              this.mediaHandler.show_media_details();
             },
           },
           {
-            label: "下载封面",
+            label: "下载弹幕",
             callback: () => {
-              this.handler.download_thumb();
+              if (!this.mediaHandler.player) {
+                alert("当前没有播放器实例，无法下载弹幕。");
+                return;
+              }
+              if (!this.mediaHandler.current_media) {
+                alert("当前没有媒体实例，无法下载弹幕。");
+                return;
+              }
+              const content = this.danmakuHandler.getDanmakuAssFileContent(
+                this.mediaHandler.player
+              );
+              const filename = this.mediaHandler._build_filename(
+                this.mediaHandler.current_media
+              );
+              const blob = new Blob([content], { type: "text/plain" });
+              this.downloader.download_blob(blob, `${filename}.ass`);
             },
           },
           {
@@ -1412,7 +1437,7 @@
           {
             label: "下载",
             callback: () => {
-              this.handler.download_current_media();
+              this.mediaHandler.download_current_media();
             },
           },
         ],
@@ -1573,13 +1598,208 @@
     }
   }
 
+  /**
+   * 将毫秒时间戳转换为 ASS 格式的时间字符串 (H:MM:SS.ss)
+   */
+  function msToAssTime(ms) {
+    if (ms < 0) ms = 0;
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    const centiseconds = Math.round((ms % 1000) / 10);
+    const pad = (num, length = 2) => num.toString().padStart(length, "0");
+    return `${hours}:${pad(minutes)}:${pad(seconds)}.${pad(centiseconds)}`;
+  }
+
+  /**
+   * 将 HEX 颜色 (#RRGGBB) 转换为 ASS 格式的颜色字符串 (&HBBGGRR&)
+   */
+  function hexToAssColor(hex) {
+    if (!hex || !hex.startsWith("#")) return "&H00FFFFFF";
+    const r = hex.substring(1, 3);
+    const g = hex.substring(3, 5);
+    const b = hex.substring(5, 7);
+    return `&H${b}${g}${r}&`;
+  }
+
+  /**
+   * 弹幕相关
+   */
+  class DanmakuHandler {
+    /**
+     * 将弹幕 JSON 数据转换为 ASS 文件，优化视觉表现
+     * @param {Array<Object>} danmakuData - 弹幕数据数组
+     * @param {Object} [options] - 可选配置项
+     * @param {string} [options.title="Danmaku"] - ASS 文件标题
+     * @param {number} [options.playResX=1920] - 视频宽度
+     * @param {number} [options.playResY=1080] - 视频高度
+     * @param {string} [options.font="Microsoft YaHei"] - 默认字体
+     * @param {number} [options.baseFontSize=20] - JSON中的基准字号，用于布局计算
+     * @param {number} [options.fontSizeMultiplier=2.5] - 字体大小缩放倍率，将JSON中的字号放大
+     * @param {number} [options.lineHeightRatio=1.2] - 行高与字号的比例，用于计算轨道高度
+     * @param {number} [options.topMargin=10] - 弹幕区域距离屏幕顶部的边距
+     * @param {number} [options.maxTracks=15] - 最大轨道数
+     * @returns {string} - 生成的 ASS 文件内容字符串
+     */
+    convertDanmakuToAss(danmakuData, options = {}) {
+      // --- 1. 设置默认配置 ---
+      const config = {
+        title: "Danmaku",
+        playResX: 1920,
+        playResY: 1080,
+        font: "Microsoft YaHei",
+        baseFontSize: 20, // 假设JSON中大部分字体大小是20px
+        fontSizeMultiplier: 2.5, // 将20px放大到50，在1080p下是合适的尺寸
+        lineHeightRatio: 1.2, // 1.2倍行高，间距更紧凑
+        topMargin: 10,
+        maxTracks: 15,
+        ...options,
+      };
+
+      // --- 2. 动态计算布局参数 ---
+      // 计算用于布局的基准字体大小和轨道高度
+      const layoutFontSize = config.baseFontSize * config.fontSizeMultiplier;
+      const trackHeight = layoutFontSize * config.lineHeightRatio;
+
+      // --- 3. 构建 ASS 文件头部 ---
+      const header = `[Script Info]
+; Script generated by JavaScript Danmaku Converter V3
+Title: ${config.title}
+ScriptType: v4.00+
+PlayResX: ${config.playResX}
+PlayResY: ${config.playResY}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,${config.font},${layoutFontSize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+      // --- 4. 轨道管理与弹幕生成 ---
+      const tracks = new Array(config.maxTracks).fill(0);
+      const sortedData = [...danmakuData].sort((a, b) => a.start - b.start);
+
+      const events = sortedData
+        .map((dm) => {
+          if (!dm.start || !dm.text || !dm.duration || !dm.style) {
+            return null;
+          }
+
+          // 计算这条弹幕实际渲染的字体大小
+          const actualFontSize =
+            (parseInt(dm.style.fontSize) || config.baseFontSize) *
+            config.fontSizeMultiplier;
+
+          // 估算弹幕文本的像素宽度（使用0.6作为中文字符宽高比的近似值）
+          const textWidth = dm.text.length * actualFontSize * 0.6;
+
+          const speed = (config.playResX + textWidth) / dm.duration;
+          if (speed <= 0) return null;
+
+          const timeToClearRightEdge = textWidth / speed;
+
+          let trackIndex = -1;
+          for (let i = 0; i < config.maxTracks; i++) {
+            if (tracks[i] <= dm.start) {
+              trackIndex = i;
+              break;
+            }
+          }
+          if (trackIndex === -1) {
+            let earliestFreeTime = Infinity;
+            for (let i = 0; i < config.maxTracks; i++) {
+              if (tracks[i] < earliestFreeTime) {
+                earliestFreeTime = tracks[i];
+                trackIndex = i;
+              }
+            }
+          }
+
+          tracks[trackIndex] = dm.start + timeToClearRightEdge;
+
+          // 计算正确的Y坐标
+          // yPos应该是文本的垂直中心点在其轨道内的位置
+          // 轨道中心点 = 顶部边距 + 已占用的轨道高度 + 当前轨道高度的一半
+          const yPos =
+            config.topMargin + trackIndex * trackHeight + trackHeight / 2;
+
+          const startTime = msToAssTime(dm.start);
+          const endTime = msToAssTime(dm.start + dm.duration);
+          const assColor = hexToAssColor(dm.style.color);
+
+          const startX = config.playResX + textWidth / 2;
+          const endX = -textWidth / 2;
+
+          const assText = `{\\move(${startX}, ${yPos}, ${endX}, ${yPos})}{\\c${assColor}\\fs${actualFontSize}}${dm.text}`;
+
+          return `Dialogue: 0,${startTime},${endTime},Default,,0,0,0,,${assText}`;
+        })
+        .filter(Boolean)
+        .join("\n");
+
+      return header + events;
+    }
+
+    /**
+     *
+     * @param {import("./types").DouyinPlayer.PlayerInstance} player
+     */
+    getDanmakuList(player) {
+      return player?.danmaku?.main?.data || [];
+    }
+
+    /**
+     * 获取视频宽高
+     *
+     * NOTE： 这里主要是获取比例
+     *
+     * @param {import("./types").DouyinPlayer.PlayerInstance} player
+     */
+    getMediaSize(player) {
+      const {
+        sizeInfo: { width, height },
+      } = player;
+      return { width, height };
+    }
+
+    /**
+     * 获取弹幕 ass 文件
+     *
+     * @param {import("./types").DouyinPlayer.PlayerInstance} player
+     */
+    getDanmakuAssFileContent(player) {
+      const list = this.getDanmakuList(player);
+      if (!list || list.length === 0) {
+        alert("当前视频弹幕为空，或者未加载完成");
+        return;
+      }
+      const size = this.getMediaSize(player);
+      return this.convertDanmakuToAss(list, {
+        // TODO: 这里可以写入一些视频元数据，暂时占位写个链接
+        title: "download from https://github.com/zhzLuke96/douyin-dl-user-js",
+        playResX: size.width,
+        playResY: size.height,
+      });
+    }
+  }
+
   // ========== Main Script Logic =============
 
   const downloader = new Downloader();
   const mediaHandler = new MediaHandler(downloader);
   const videoHandler = new VideoHandler();
+  const danmakuHandler = new DanmakuHandler();
   // Pass the already bound method from mediaHandler instance
-  const domPatcher = new DOMPatcher(downloader, mediaHandler, videoHandler);
+  const domPatcher = new DOMPatcher({
+    downloader,
+    mediaHandler,
+    videoHandler,
+    danmakuHandler,
+  });
   const hotkeyManager = new HotkeyManager();
 
   mediaHandler.init(); // Starts player detection
